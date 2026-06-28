@@ -1,0 +1,550 @@
+/* =====================================================================
+   DigiBoard — Global Design System
+   Dark, premium infinite-canvas drawing app
+   ===================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* ── Reset & Base ─────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  /* Colour tokens */
+  --bg-deepest:   #0a0b0e;
+  --bg-deep:      #10121a;
+  --bg-surface:   #161925;
+  --bg-elevated:  #1e2235;
+  --bg-hover:     #252a40;
+  --bg-active:    #2d3352;
+
+  --border:       rgba(255,255,255,0.07);
+  --border-focus: rgba(139,92,246,0.6);
+
+  --accent:       #7c3aed;
+  --accent-light: #a78bfa;
+  --accent-glow:  rgba(124,58,237,0.35);
+
+  --cyan:         #06b6d4;
+  --cyan-glow:    rgba(6,182,212,0.25);
+
+  --text-primary:   #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted:     #475569;
+
+  --danger:       #ef4444;
+  --success:      #22c55e;
+
+  /* Spacing */
+  --toolbar-h: 56px;
+  --panel-w:   240px;
+
+  /* Radius */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.5);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.7);
+
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-deepest);
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+input[type='range'] {
+  cursor: pointer;
+  accent-color: var(--accent-light);
+}
+
+/* ── Layout ───────────────────────────────────────────────────────── */
+
+.board-root {
+  display: grid;
+  grid-template-rows: var(--toolbar-h) 1fr;
+  grid-template-columns: 1fr var(--panel-w);
+  grid-template-areas:
+    "toolbar  toolbar"
+    "canvas   layers";
+  width: 100%;
+  height: 100%;
+  background: var(--bg-deepest);
+}
+
+/* ── Toolbar ──────────────────────────────────────────────────────── */
+
+.toolbar {
+  grid-area: toolbar;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  height: var(--toolbar-h);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  z-index: 20;
+}
+
+.toolbar::-webkit-scrollbar { display: none; }
+
+.toolbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+
+.toolbar-logo {
+  font-size: 20px;
+  background: linear-gradient(135deg, var(--accent-light), var(--cyan));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter: drop-shadow(0 0 8px var(--accent-glow));
+}
+
+.toolbar-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  background: linear-gradient(90deg, var(--text-primary), var(--text-secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  flex-shrink: 0;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 28px;
+  background: var(--border);
+  flex-shrink: 0;
+  margin: 0 6px;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+/* ── Tool Buttons ─────────────────────────────────────────────────── */
+
+.tool-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 5px 10px;
+  border-radius: var(--r-sm);
+  transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
+  flex-shrink: 0;
+  min-width: 52px;
+}
+
+.tool-btn:hover {
+  background: var(--bg-hover);
+  transform: translateY(-1px);
+}
+
+.tool-btn.active {
+  background: var(--bg-active);
+  box-shadow: 0 0 0 1.5px var(--accent-light), inset 0 0 10px var(--accent-glow);
+}
+
+.tool-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.tool-label {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0.3px;
+}
+
+.tool-btn.active .tool-label {
+  color: var(--accent-light);
+}
+
+/* ── Settings Controls ────────────────────────────────────────────── */
+
+.setting-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+}
+
+.setting-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.color-input {
+  width: 32px;
+  height: 22px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-sm);
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.color-input:hover {
+  border-color: var(--accent-light);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.range-input {
+  width: 80px;
+  height: 4px;
+}
+
+/* ── Action Buttons ───────────────────────────────────────────────── */
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  transition: all 0.15s;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.action-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: rgba(255,255,255,0.15);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.action-btn.active {
+  background: var(--bg-active);
+  color: var(--accent-light);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-glow);
+}
+
+.export-btn {
+  color: var(--cyan);
+  border-color: rgba(6,182,212,0.25);
+}
+
+.export-btn:hover:not(:disabled) {
+  background: rgba(6,182,212,0.08);
+  border-color: var(--cyan);
+  box-shadow: 0 0 12px var(--cyan-glow);
+  color: var(--cyan);
+}
+
+.layers-toggle {
+  gap: 6px;
+}
+
+/* ── Canvas Area ──────────────────────────────────────────────────── */
+
+.canvas-wrapper {
+  grid-area: canvas;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-deepest);
+}
+
+.main-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  /* Pixel-perfect: let the JS set actual px dimensions */
+}
+
+/* ── Viewport Info ────────────────────────────────────────────────── */
+
+.viewport-info {
+  position: absolute;
+  bottom: 14px;
+  left: 16px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ── Zoom Controls ────────────────────────────────────────────────── */
+
+.zoom-controls {
+  position: absolute;
+  bottom: 14px;
+  right: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  z-index: 10;
+}
+
+.zoom-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-sm);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 18px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  box-shadow: var(--shadow-sm);
+}
+
+.zoom-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: rgba(255,255,255,0.15);
+  box-shadow: var(--shadow-md);
+  transform: scale(1.05);
+}
+
+.zoom-level {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+  width: auto;
+  padding: 0 8px;
+  min-width: 36px;
+}
+
+/* ── Layer Panel ──────────────────────────────────────────────────── */
+
+.layer-panel {
+  grid-area: layers;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.layer-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.panel-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.icon-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-sm);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.icon-btn:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+/* ── Layer List ───────────────────────────────────────────────────── */
+
+.layer-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  list-style: none;
+  padding: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bg-active) transparent;
+}
+
+.layer-list::-webkit-scrollbar { width: 5px; }
+.layer-list::-webkit-scrollbar-track { background: transparent; }
+.layer-list::-webkit-scrollbar-thumb {
+  background: var(--bg-active);
+  border-radius: 3px;
+}
+
+.layer-item {
+  display: grid;
+  grid-template-columns: 24px 1fr 24px auto 24px;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 6px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background 0.12s;
+  margin-bottom: 2px;
+  border: 1px solid transparent;
+}
+
+.layer-item:hover {
+  background: var(--bg-elevated);
+}
+
+.layer-item.active {
+  background: var(--bg-active);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-glow);
+}
+
+.layer-item.active .layer-name {
+  color: var(--text-primary);
+}
+
+.layer-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+  user-select: none;
+}
+
+.layer-name-input {
+  width: 100%;
+  background: var(--bg-deepest);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text-primary);
+  padding: 2px 5px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+
+.layer-icon-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s;
+  opacity: 0.6;
+}
+
+.layer-icon-btn:hover { opacity: 1; background: var(--bg-hover); }
+.layer-icon-btn.off { opacity: 0.3; }
+.layer-icon-btn.locked { color: var(--accent-light); opacity: 1; }
+
+.del-btn:hover {
+  background: rgba(239,68,68,0.15) !important;
+  color: var(--danger) !important;
+}
+
+.del-btn:disabled { cursor: not-allowed; }
+
+.layer-opacity {
+  width: 100%;
+  height: 3px;
+  grid-column: 1 / -1;
+  margin-top: 2px;
+}
+
+.layer-panel-hint {
+  padding: 8px 14px;
+  font-size: 10px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* ── Scrollbar (global) ───────────────────────────────────────────── */
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--bg-active);
+  border-radius: 3px;
+}
+
+/* ── Animations ───────────────────────────────────────────────────── */
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.layer-panel {
+  animation: fadeIn 0.2s ease;
+}
+
+/* ── Focus Visible ────────────────────────────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid var(--accent-light);
+  outline-offset: 2px;
+}
