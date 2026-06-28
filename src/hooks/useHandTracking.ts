@@ -1,261 +1,252 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+/**
+ * useHandTracking.ts  (full rewrite)
+ *
+ * Runs MediaPipe Hands on a live video element.
+ * - Detects up to 2 hands simultaneously
+ * - Returns 21 normalized landmarks + world landmarks per hand
+ * - Tracks FPS
+ * - Exposes ready/error states
+ *
+ * NO gesture detection here — pure landmark data.
+ * NO drawing here — see useHandOverlay.ts.
+ */
 
-export type GestureType = 'pointing' | 'eraser' | 'fist' | 'pinch' | 'two-fingers' | 'none';
+import { useEffect, useRef, useState, useCallback } from 'react';
+// @mediapipe/hands populates window.Hands at runtime via its self-executing bundle.
+// We import the package so Vite includes it in the bundle, but access it via window.
+import '@mediapipe/hands';
 
+// ─── Inline result types (CJS mediapipe package has no named TS exports) ─────
+type MPResults = {
+  multiHandLandmarks?: Array<Array<{ x: number; y: number; z: number }>>;
+  multiHandWorldLandmarks?: Array<Array<{ x: number; y: number; z: number }>>;
+  multiHandedness?: Array<{ label: string; score: number }>;
+};
+
+
+// ─── Public Types ────────────────────────────────────────────────────────────
+
+/** A single 3-D point. Normalized x/y are 0–1 (image space). z is depth. */
 export interface HandLandmark {
   x: number;
   y: number;
   z: number;
 }
 
+/** All data MediaPipe returns for one detected hand. */
+export interface DetectedHand {
+  /** 0-based index among detected hands (up to maxNumHands - 1) */
+  index: number;
+  /** 'Left' or 'Right' as labelled by MediaPipe (mirrored for front-facing cam) */
+  handedness: 'Left' | 'Right';
+  /** Model confidence score 0–1 */
+  confidence: number;
+  /**
+   * 21 normalized landmarks (x, y ∈ [0, 1], z is relative depth).
+   * Index mapping: https://developers.google.com/mediapipe/solutions/vision/hand_landmarker
+   *   0  = WRIST
+   *   1–4  = THUMB (CMC → TIP)
+   *   5–8  = INDEX (MCP → TIP)
+   *   9–12 = MIDDLE (MCP → TIP)
+   *  13–16 = RING (MCP → TIP)
+   *  17–20 = PINKY (MCP → TIP)
+   */
+  landmarks: HandLandmark[];
+  /**
+   * 21 world landmarks in real-world units (meters).
+   * Origin is the hand's geometric center.
+   */
+  worldLandmarks: HandLandmark[];
+}
+
+export interface HandTrackingOptions {
+  /** Max simultaneous hands (1 or 2). Default: 2 */
+  maxNumHands?: 1 | 2;
+  /** Model complexity 0 (lite) or 1 (full). Default: 1 */
+  modelComplexity?: 0 | 1;
+  /** Detection confidence threshold 0–1. Default: 0.7 */
+  minDetectionConfidence?: number;
+  /** Tracking confidence threshold 0–1. Default: 0.5 */
+  minTrackingConfidence?: number;
+}
+
+export interface HandTrackingState {
+  /** True once MediaPipe model is initialised */
+  isReady: boolean;
+  /** True while model is loading */
+  isLoading: boolean;
+  /** Non-null if initialisation failed */
+  error: string | null;
+  /** Currently detected hands — empty array when none visible */
+  hands: DetectedHand[];
+  /** Frames processed per second (rolling 1-s window) */
+  fps: number;
+  /** Call once the video element is playing to start detection */
+  startDetection: () => void;
+  /** Stop the detection loop */
+  stopDetection: () => void;
+}
+
+// ─── Landmark index constants ─────────────────────────────────────────────────
+
+export const LANDMARK = {
+  WRIST: 0,
+  THUMB_CMC: 1, THUMB_MCP: 2, THUMB_IP: 3, THUMB_TIP: 4,
+  INDEX_MCP: 5, INDEX_PIP: 6, INDEX_DIP: 7, INDEX_TIP: 8,
+  MIDDLE_MCP: 9, MIDDLE_PIP: 10, MIDDLE_DIP: 11, MIDDLE_TIP: 12,
+  RING_MCP: 13, RING_PIP: 14, RING_DIP: 15, RING_TIP: 16,
+  PINKY_MCP: 17, PINKY_PIP: 18, PINKY_DIP: 19, PINKY_TIP: 20,
+} as const;
+
+// ─── Hook ────────────────────────────────────────────────────────────────────
+
 export function useHandTracking(
-  videoRef: React.RefObject<HTMLVideoElement | null>
-) {
-  const [isLoaded, setIsLoaded] = useState(false);
-  const [isCameraActive, setIsCameraActive] = useState(false);
-  const [cameraError, setCameraError] = useState<string | null>(null);
-  const [currentGesture, setCurrentGesture] = useState<GestureType>('none');
-  const [fps, setFps] = useState<number>(0);
-  const [landmarks, setLandmarks] = useState<HandLandmark[] | null>(null);
+  videoRef: React.RefObject<HTMLVideoElement | null>,
+  options: HandTrackingOptions = {}
+): HandTrackingState {
+  const {
+    maxNumHands = 2,
+    modelComplexity = 1,
+    minDetectionConfidence = 0.7,
+    minTrackingConfidence = 0.5,
+  } = options;
 
-  // References for keeping track of variables in animation frames
-  const handsRef = useRef<any>(null);
-  const cameraRef = useRef<any>(null);
-  const fpsIntervalRef = useRef<number[]>([]);
-  const simulatedGestureRef = useRef<GestureType>('none');
+  const [isReady, setIsReady]     = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError]         = useState<string | null>(null);
+  const [hands, setHands]         = useState<DetectedHand[]>([]);
+  const [fps, setFps]             = useState(0);
 
-  // Dynamic script loader for MediaPipe Hands
+  const handsRef   = useRef<any>(null);
+  const rafRef     = useRef<number | null>(null);
+  const fpsWindow  = useRef<number[]>([]);
+  const runningRef = useRef(false);
+
+  // ── Initialise MediaPipe Hands ──────────────────────────────────────────────
   useEffect(() => {
-    let active = true;
+    let cancelled = false;
+    setIsLoading(true);
+    setError(null);
 
-    const loadScripts = async () => {
+    const init = async () => {
       try {
-        if (!window.hasOwnProperty('Hands')) {
-          const cameraScript = document.createElement('script');
-          cameraScript.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js';
-          cameraScript.async = true;
-          cameraScript.crossOrigin = 'anonymous';
-          document.head.appendChild(cameraScript);
+        // Access Hands via window global (mediapipe bundle is a self-executing IIFE)
+        const HandsClass = (window as any).Hands;
+        if (!HandsClass) throw new Error('MediaPipe Hands not loaded. Check network access to CDN.');
 
-          const handsScript = document.createElement('script');
-          handsScript.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js';
-          handsScript.async = true;
-          handsScript.crossOrigin = 'anonymous';
-          document.head.appendChild(handsScript);
+        const mp = new HandsClass({
+          locateFile: (file: string) =>
+            `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+        });
 
-          await Promise.all([
-            new Promise((resolve) => { cameraScript.onload = resolve; }),
-            new Promise((resolve) => { handsScript.onload = resolve; })
-          ]);
+        mp.setOptions({
+          maxNumHands,
+          modelComplexity,
+          minDetectionConfidence,
+          minTrackingConfidence,
+          selfieMode: true,          // mirror for front-facing camera
+        });
+
+        mp.onResults(handleResults);
+
+        // Warm up the model
+        await mp.initialize();
+
+        if (!cancelled) {
+          handsRef.current = mp;
+          setIsReady(true);
+          setIsLoading(false);
         }
-
-        if (active) {
-          setIsLoaded(true);
-        }
-      } catch (err) {
-        console.error('Failed to load MediaPipe scripts:', err);
-        if (active) {
-          setCameraError('Failed to load gesture recognition engine.');
+      } catch (err: any) {
+        if (!cancelled) {
+          setError(err.message ?? 'Failed to load MediaPipe Hands model.');
+          setIsLoading(false);
         }
       }
     };
 
-    loadScripts();
-
-    // Listen to keyboard for simulating gestures (makes testing/usage without camera seamless)
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === '1') {
-        simulatedGestureRef.current = 'pointing';
-        setCurrentGesture('pointing');
-      } else if (e.key === '2') {
-        simulatedGestureRef.current = 'eraser';
-        setCurrentGesture('eraser');
-      } else if (e.key === '3') {
-        simulatedGestureRef.current = 'fist';
-        setCurrentGesture('fist');
-      } else if (e.key === '4') {
-        simulatedGestureRef.current = 'two-fingers';
-        setCurrentGesture('two-fingers');
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (['1', '2', '3', '4'].includes(e.key)) {
-        simulatedGestureRef.current = 'none';
-        setCurrentGesture('none');
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
+    init();
 
     return () => {
-      active = false;
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
+      cancelled = true;
+      handsRef.current?.close();
+      handsRef.current = null;
     };
-  }, []);
+    // Re-init only when core options change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maxNumHands, modelComplexity, minDetectionConfidence, minTrackingConfidence]);
 
-  // Distance helper
-  const getDistance = (p1: HandLandmark, p2: HandLandmark) => {
-    const dx = p1.x - p2.x;
-    const dy = p1.y - p2.y;
-    const dz = p1.z - p2.z;
-    return Math.sqrt(dx * dx + dy * dy + dz * dz);
-  };
-
-  // Process Hand Landmarks to detect Gestures
-  const processLandmarks = useCallback((pts: HandLandmark[]) => {
-    setLandmarks(pts);
-
-    // Tip points and knuckle bases
-    // Thumb: tip 4, IP joint 3, base 2
-    // Index: tip 8, PIP joint 6, MCP joint 5
-    // Middle: tip 12, PIP joint 10, MCP joint 9
-    // Ring: tip 16, PIP joint 14, MCP joint 13
-    // Pinky: tip 20, PIP joint 18, MCP joint 17
-    
-    // Note: Y coordinates are inverted in camera image space (smaller y = higher up)
-    const isIndexOpen = pts[8].y < pts[6].y;
-    const isMiddleOpen = pts[12].y < pts[10].y;
-    const isRingOpen = pts[16].y < pts[14].y;
-    const isPinkyOpen = pts[20].y < pts[18].y;
-    
-    // Thumb open: Check if thumb is spread out from index MCP (horizontal spread)
-    // const _isThumbOpen = getDistance(pts[4], pts[5]) > getDistance(pts[3], pts[5]);
-
-    // Pinch: Thumb tip (4) and Index tip (8) are extremely close
-    const pinchDist = getDistance(pts[4], pts[8]);
-    const isPinch = pinchDist < 0.055;
-
-    // Gesture classifications:
-    if (isPinch) {
-      return 'pinch';
-    } else if (isIndexOpen && isMiddleOpen && isRingOpen && isPinkyOpen) {
-      return 'eraser'; // Open Hand
-    } else if (!isIndexOpen && !isMiddleOpen && !isRingOpen && !isPinkyOpen) {
-      return 'fist';   // Closed Fist
-    } else if (isIndexOpen && isMiddleOpen && !isRingOpen && !isPinkyOpen) {
-      return 'two-fingers'; // Two fingers selection
-    } else if (isIndexOpen && !isMiddleOpen && !isRingOpen && !isPinkyOpen) {
-      return 'pointing';    // Pointing
-    }
-
-    return 'none';
-  }, []);
-
-  const onResults = useCallback((results: any) => {
-    // Calculate FPS
+  // ── Results handler ────────────────────────────────────────────────────────
+  const handleResults = useCallback((results: MPResults) => {
+    // FPS — rolling 1-second window
     const now = performance.now();
-    fpsIntervalRef.current.push(now);
-    // Keep only timestamps within last 1 second
-    fpsIntervalRef.current = fpsIntervalRef.current.filter(t => now - t < 1000);
-    setFps(fpsIntervalRef.current.length);
+    fpsWindow.current.push(now);
+    fpsWindow.current = fpsWindow.current.filter((t) => now - t < 1000);
+    setFps(fpsWindow.current.length);
 
-    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-      const detectedGesture = processLandmarks(results.multiHandLandmarks[0]);
-      
-      // If user isn't overriding with keys, set current gesture
-      if (simulatedGestureRef.current === 'none') {
-        setCurrentGesture(detectedGesture);
-      }
-    } else {
-      setLandmarks(null);
-      if (simulatedGestureRef.current === 'none') {
-        setCurrentGesture('none');
-      }
+    const detected: DetectedHand[] = [];
+
+    if (
+      results.multiHandLandmarks &&
+      results.multiHandLandmarks.length > 0
+    ) {
+      results.multiHandLandmarks.forEach((landmarkList: Array<{x:number;y:number;z:number}>, i: number) => {
+        const label = results.multiHandedness?.[i];
+        detected.push({
+          index: i,
+          handedness: (label?.label ?? 'Right') as 'Left' | 'Right',
+          confidence: label?.score ?? 1,
+          landmarks: landmarkList.map((l) => ({ x: l.x, y: l.y, z: l.z ?? 0 })),
+          worldLandmarks:
+            results.multiHandWorldLandmarks?.[i]?.map((l) => ({
+              x: l.x,
+              y: l.y,
+              z: l.z ?? 0,
+            })) ?? [],
+        });
+      });
     }
-  }, [processLandmarks]);
 
-  const startCamera = useCallback(async () => {
-    if (!isLoaded) return;
-    setCameraError(null);
+    setHands(detected);
+  }, []);
 
-    try {
-      // 1. Initialize MediaPipe Hands if not done yet
-      if (!handsRef.current) {
-        const mpHands = (window as any).Hands;
-        if (!mpHands) {
-          throw new Error('Hands global variable not found.');
-        }
-
-        const handsInstance = new mpHands({
-          locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-        });
-
-        handsInstance.setOptions({
-          maxNumHands: 1,
-          modelComplexity: 1,
-          minDetectionConfidence: 0.7,
-          minTrackingConfidence: 0.7
-        });
-
-        handsInstance.onResults(onResults);
-        handsRef.current = handsInstance;
-      }
-
-      // 2. Setup video element and start Camera
-      const videoElement = videoRef.current;
-      if (videoElement) {
-        const mpCamera = (window as any).Camera;
-        if (!mpCamera) {
-          throw new Error('Camera global variable not found.');
-        }
-
-        const cameraInstance = new mpCamera(videoElement, {
-          onFrame: async () => {
-            if (handsRef.current) {
-              await handsRef.current.send({ image: videoElement });
-            }
-          },
-          width: 640,
-          height: 480
-        });
-
-        await cameraInstance.start();
-        cameraRef.current = cameraInstance;
-        setIsCameraActive(true);
-      } else {
-        throw new Error('Video element not provided.');
-      }
-    } catch (err: any) {
-      console.error('Camera access failed:', err);
-      setCameraError(err.message || 'Could not start camera. Check permissions.');
-      setIsCameraActive(false);
-    }
-  }, [isLoaded, videoRef, onResults]);
-
-  const stopCamera = useCallback(async () => {
-    if (cameraRef.current) {
+  // ── Detection loop ─────────────────────────────────────────────────────────
+  const detect = useCallback(async () => {
+    if (!runningRef.current) return;
+    const video = videoRef.current;
+    if (handsRef.current && video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
       try {
-        await cameraRef.current.stop();
-      } catch (e) {
-        console.error('Failed to stop camera:', e);
+        await handsRef.current.send({ image: video });
+      } catch {
+        // Suppress frame-level errors (e.g. video paused mid-frame)
       }
-      cameraRef.current = null;
     }
-    setIsCameraActive(false);
-    setLandmarks(null);
-    setCurrentGesture('none');
+    rafRef.current = requestAnimationFrame(detect);
+  }, [videoRef]);
+
+  const startDetection = useCallback(() => {
+    if (runningRef.current || !isReady) return;
+    runningRef.current = true;
+    rafRef.current = requestAnimationFrame(detect);
+  }, [isReady, detect]);
+
+  const stopDetection = useCallback(() => {
+    runningRef.current = false;
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    setHands([]);
+    setFps(0);
   }, []);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (cameraRef.current) {
-        cameraRef.current.stop().catch(console.error);
-      }
+      runningRef.current = false;
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
   }, []);
 
-  return {
-    isLoaded,
-    isCameraActive,
-    cameraError,
-    currentGesture,
-    fps,
-    landmarks,
-    startCamera,
-    stopCamera,
-  };
+  return { isReady, isLoading, error, hands, fps, startDetection, stopDetection };
 }
