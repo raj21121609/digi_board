@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useCallback } from 'react';
 import { Navbar } from './components/Navbar';
 import { Toolbar } from './components/Toolbar';
 import { Canvas } from './components/Canvas';
@@ -6,12 +6,27 @@ import { GestureSidebar } from './components/GestureSidebar';
 import { StatusBar } from './components/StatusBar';
 import { useWhiteboard } from './hooks/useWhiteboard';
 import { useHandTracking } from './hooks/useHandTracking';
+import type { WebcamViewHandle } from './components/WebcamView';
 
 function App() {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  /**
+   * webcamRef exposes the imperative handle of <WebcamView> so we can:
+   *  - read webcamRef.current.videoElement  → fed into useHandTracking
+   *  - read webcamRef.current.canvasElement → already-mirrored frames for ML
+   *  - call start() / stop() programmatically from the Navbar button
+   */
+  const webcamRef = useRef<WebcamViewHandle | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Initialize custom whiteboard drawing hooks
+  // ── Build a stable videoRef that proxies into webcamRef ─────────────────
+  // useHandTracking expects a React.RefObject<HTMLVideoElement|null>.
+  // We create a stable ref object whose .current getter always reads
+  // webcamRef.current.videoElement so the hook always has a live reference.
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  // Sync on every render (cheap – just a property assignment)
+  videoRef.current = webcamRef.current?.videoElement ?? null;
+
+  // ── Whiteboard state ─────────────────────────────────────────────────────
   const {
     elements,
     currentTool,
@@ -33,7 +48,7 @@ function App() {
     selectAt,
   } = useWhiteboard();
 
-  // Initialize custom AI Hand gesture recognition hook
+  // ── AI hand tracking (consumes the video element via videoRef) ───────────
   const {
     isLoaded: isModelLoaded,
     isCameraActive,
@@ -45,43 +60,48 @@ function App() {
     stopCamera,
   } = useHandTracking(videoRef);
 
-  const handleToggleCamera = () => {
+  // ── Camera toggle (wires Navbar button → useHandTracking) ────────────────
+  const handleToggleCamera = useCallback(() => {
     if (isCameraActive) {
       stopCamera();
     } else {
-      startCamera();
+      // Make sure the WebcamView's video is playing before starting MediaPipe
+      webcamRef.current?.start().then(() => startCamera());
     }
-  };
+  }, [isCameraActive, startCamera, stopCamera]);
 
-  // Export Whiteboard contents to PNG file
-  const handleSavePng = () => {
+  // Called by GestureSidebar's WebcamView onStart / onStop callbacks
+  const handleWebcamStart = useCallback(() => {
+    startCamera();
+  }, [startCamera]);
+
+  const handleWebcamStop = useCallback(() => {
+    stopCamera();
+  }, [stopCamera]);
+
+  // ── Export whiteboard as PNG ─────────────────────────────────────────────
+  const handleSavePng = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Create a temporary canvas to burn a solid white background (since the canvas itself is transparent)
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = canvas.width;
     tempCanvas.height = canvas.height;
-    const tempCtx = tempCanvas.getContext('2d');
-    
-    if (tempCtx) {
-      // 1. Draw solid white background
-      tempCtx.fillStyle = '#ffffff';
-      tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-      
-      // 2. Draw canvas contents
-      tempCtx.drawImage(canvas, 0, 0);
+    const ctx = tempCanvas.getContext('2d');
+    if (!ctx) return;
 
-      // 3. Initiate client-side download
-      const imageURL = tempCanvas.toDataURL('image/png');
-      const downloadLink = document.createElement('a');
-      downloadLink.href = imageURL;
-      downloadLink.download = `digiboard-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.png`;
-      document.body.appendChild(downloadLink);
-      downloadLink.click();
-      document.body.removeChild(downloadLink);
-    }
-  };
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+    ctx.drawImage(canvas, 0, 0);
+
+    const url = tempCanvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `digiboard-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }, []);
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-900 select-none">
@@ -93,9 +113,9 @@ function App() {
         isModelLoaded={isModelLoaded}
       />
 
-      {/* Main Workspace: Toolbar + Infinite Drawing Canvas + Right Control Panel */}
+      {/* Main Workspace */}
       <div className="flex flex-1 relative overflow-hidden h-[calc(100vh-4rem)]">
-        {/* Left Vertical Floating Toolbar */}
+        {/* Left Floating Toolbar */}
         <Toolbar
           currentTool={currentTool}
           setTool={setCurrentTool}
@@ -109,7 +129,7 @@ function App() {
           savePng={handleSavePng}
         />
 
-        {/* Dynamic Infinite Whiteboard Canvas */}
+        {/* Infinite Drawing Canvas */}
         <Canvas
           elements={elements}
           currentTool={currentTool}
@@ -129,17 +149,18 @@ function App() {
           canvasRef={canvasRef}
         />
 
-        {/* Right Floating Sidebar with AI Status & Camera Feed preview */}
+        {/* Right Sidebar — hosts WebcamView + gesture status */}
         <GestureSidebar
           isCameraActive={isCameraActive}
           landmarks={landmarks}
           currentGesture={currentGesture}
-          videoRef={videoRef}
+          webcamRef={webcamRef}
           onToggleCamera={handleToggleCamera}
+          fps={fps}
         />
       </div>
 
-      {/* Bottom Status bar */}
+      {/* Bottom Status Bar */}
       <StatusBar
         isCameraActive={isCameraActive}
         fps={fps}
