@@ -42,11 +42,14 @@ export default function HandOverlay({
   options        = {},
   className      = '',
 }: HandOverlayProps) {
-  const videoRef  = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
   // ── Webcam stream ──────────────────────────────────────────────────────────
-  const webcam = useWebcam(videoRef, { width, height });
+  const {
+    videoRef,
+    canvasRef,
+    state: webcamState,
+    start: startWebcam,
+    stop: stopWebcam
+  } = useWebcam({ width, height });
 
   // ── MediaPipe tracking ─────────────────────────────────────────────────────
   const tracking = useHandTracking(videoRef, {
@@ -56,14 +59,14 @@ export default function HandOverlay({
 
   // Start detection once camera is active and model is ready
   useEffect(() => {
-    if (webcam.isActive && tracking.isReady) {
+    if (webcamState.isActive && tracking.isReady) {
       tracking.startDetection();
     }
     return () => {
       tracking.stopDetection();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [webcam.isActive, tracking.isReady]);
+  }, [webcamState.isActive, tracking.isReady]);
 
   // Sync canvas size to video
   useEffect(() => {
@@ -72,7 +75,7 @@ export default function HandOverlay({
       canvas.width  = width;
       canvas.height = height;
     }
-  }, [width, height]);
+  }, [width, height, canvasRef]);
 
   // Fire onHandsChange callback
   useEffect(() => {
@@ -91,13 +94,13 @@ export default function HandOverlay({
 
   // ── Start / Stop handler ───────────────────────────────────────────────────
   const handleToggle = useCallback(() => {
-    if (webcam.isActive) {
+    if (webcamState.isActive) {
       tracking.stopDetection();
-      webcam.stop();
+      stopWebcam();
     } else {
-      webcam.start();
+      startWebcam();
     }
-  }, [webcam, tracking]);
+  }, [webcamState.isActive, tracking, startWebcam, stopWebcam]);
 
   const [showDebug, setShowDebug] = useState(false);
 
@@ -158,7 +161,7 @@ export default function HandOverlay({
         )}
 
         {/* Not started state */}
-        {!webcam.isActive && !webcam.isLoading && !tracking.isLoading && (
+        {!webcamState.isActive && !webcamState.isLoading && !tracking.isLoading && (
           <div className="ho-overlay-msg ho-start-prompt">
             <span style={{ fontSize: 40 }}>✋</span>
             <span>Camera not started</span>
@@ -167,7 +170,7 @@ export default function HandOverlay({
 
         {/* Status chips */}
         <div className="ho-chips">
-          {webcam.isActive && (
+          {webcamState.isActive && (
             <span className={`ho-chip ${tracking.hands.length > 0 ? 'ho-chip-active' : ''}`}>
               {tracking.hands.length === 0
                 ? 'No hands'
@@ -176,7 +179,7 @@ export default function HandOverlay({
                 : '2 hands'}
             </span>
           )}
-          {webcam.isActive && (
+          {webcamState.isActive && (
             <span className="ho-chip ho-chip-fps">{tracking.fps} FPS</span>
           )}
         </div>
@@ -186,13 +189,13 @@ export default function HandOverlay({
       <div className="ho-controls">
         <button
           id="ho-btn-toggle-camera"
-          className={`ho-btn ${webcam.isActive ? 'ho-btn-stop' : 'ho-btn-start'}`}
+          className={`ho-btn ${webcamState.isActive ? 'ho-btn-stop' : 'ho-btn-start'}`}
           onClick={handleToggle}
-          disabled={webcam.isLoading || tracking.isLoading}
+          disabled={webcamState.isLoading || tracking.isLoading}
         >
-          {webcam.isLoading
+          {webcamState.isLoading
             ? '⏳ Starting…'
-            : webcam.isActive
+            : webcamState.isActive
             ? '⏹ Stop Camera'
             : '▶ Start Camera'}
         </button>
@@ -207,9 +210,9 @@ export default function HandOverlay({
       </div>
 
       {/* ── Error ────────────────────────────────────────────────────────── */}
-      {(webcam.error || tracking.error) && (
+      {(webcamState.error || tracking.error) && (
         <div className="ho-error">
-          ⚠ {webcam.error ?? tracking.error}
+          ⚠ {webcamState.error ?? tracking.error}
         </div>
       )}
 
