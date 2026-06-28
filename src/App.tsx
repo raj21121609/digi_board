@@ -1,122 +1,154 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useRef } from 'react';
+import { Navbar } from './components/Navbar';
+import { Toolbar } from './components/Toolbar';
+import { Canvas } from './components/Canvas';
+import { GestureSidebar } from './components/GestureSidebar';
+import { StatusBar } from './components/StatusBar';
+import { useWhiteboard } from './hooks/useWhiteboard';
+import { useHandTracking } from './hooks/useHandTracking';
 
 function App() {
-  const [count, setCount] = useState(0)
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Initialize custom whiteboard drawing hooks
+  const {
+    elements,
+    currentTool,
+    setCurrentTool,
+    strokeColor,
+    setStrokeColor,
+    strokeWidth,
+    setStrokeWidth,
+    selectedElementId,
+    setSelectedElementId,
+    viewState,
+    setViewState,
+    undo,
+    redo,
+    clear,
+    addStroke,
+    moveElement,
+    eraseAt,
+    selectAt,
+  } = useWhiteboard();
+
+  // Initialize custom AI Hand gesture recognition hook
+  const {
+    isLoaded: isModelLoaded,
+    isCameraActive,
+    cameraError,
+    currentGesture,
+    fps,
+    landmarks,
+    startCamera,
+    stopCamera,
+  } = useHandTracking(videoRef);
+
+  const handleToggleCamera = () => {
+    if (isCameraActive) {
+      stopCamera();
+    } else {
+      startCamera();
+    }
+  };
+
+  // Export Whiteboard contents to PNG file
+  const handleSavePng = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // Create a temporary canvas to burn a solid white background (since the canvas itself is transparent)
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = canvas.width;
+    tempCanvas.height = canvas.height;
+    const tempCtx = tempCanvas.getContext('2d');
+    
+    if (tempCtx) {
+      // 1. Draw solid white background
+      tempCtx.fillStyle = '#ffffff';
+      tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+      
+      // 2. Draw canvas contents
+      tempCtx.drawImage(canvas, 0, 0);
+
+      // 3. Initiate client-side download
+      const imageURL = tempCanvas.toDataURL('image/png');
+      const downloadLink = document.createElement('a');
+      downloadLink.href = imageURL;
+      downloadLink.download = `digiboard-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.png`;
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
+    }
+  };
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-900 select-none">
+      {/* Top Navbar */}
+      <Navbar
+        isCameraActive={isCameraActive}
+        cameraError={cameraError}
+        onToggleCamera={handleToggleCamera}
+        isModelLoaded={isModelLoaded}
+      />
 
-      <div className="ticks"></div>
+      {/* Main Workspace: Toolbar + Infinite Drawing Canvas + Right Control Panel */}
+      <div className="flex flex-1 relative overflow-hidden h-[calc(100vh-4rem)]">
+        {/* Left Vertical Floating Toolbar */}
+        <Toolbar
+          currentTool={currentTool}
+          setTool={setCurrentTool}
+          strokeColor={strokeColor}
+          setStrokeColor={setStrokeColor}
+          strokeWidth={strokeWidth}
+          setStrokeWidth={setStrokeWidth}
+          undo={undo}
+          redo={redo}
+          clear={clear}
+          savePng={handleSavePng}
+        />
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+        {/* Dynamic Infinite Whiteboard Canvas */}
+        <Canvas
+          elements={elements}
+          currentTool={currentTool}
+          setTool={setCurrentTool}
+          strokeColor={strokeColor}
+          strokeWidth={strokeWidth}
+          selectedElementId={selectedElementId}
+          setSelectedElementId={setSelectedElementId}
+          viewState={viewState}
+          setViewState={setViewState}
+          addStroke={addStroke}
+          moveElement={moveElement}
+          eraseAt={eraseAt}
+          selectAt={selectAt}
+          currentGesture={currentGesture}
+          landmarks={landmarks}
+          canvasRef={canvasRef}
+        />
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+        {/* Right Floating Sidebar with AI Status & Camera Feed preview */}
+        <GestureSidebar
+          isCameraActive={isCameraActive}
+          landmarks={landmarks}
+          currentGesture={currentGesture}
+          videoRef={videoRef}
+          onToggleCamera={handleToggleCamera}
+        />
+      </div>
+
+      {/* Bottom Status bar */}
+      <StatusBar
+        isCameraActive={isCameraActive}
+        fps={fps}
+        currentGesture={currentGesture}
+        viewState={viewState}
+        elementsCount={elements.length}
+      />
+    </div>
+  );
 }
 
-export default App
+export default App;
