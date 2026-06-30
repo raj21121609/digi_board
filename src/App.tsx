@@ -138,6 +138,7 @@ function App() {
           setTool={setCurrentTool}
           strokeColor={strokeColor}
           strokeWidth={strokeWidth}
+          setStrokeColor={setStrokeColor}
           selectedElementId={selectedElementId}
           setSelectedElementId={setSelectedElementId}
           viewState={viewState}

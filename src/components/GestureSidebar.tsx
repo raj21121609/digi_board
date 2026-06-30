@@ -46,8 +46,8 @@ const GESTURE_GUIDE = [
   {
     gesture: 'Closed Fist',
     name: 'Closed Fist',
-    action: 'Pan Board',
-    desc: 'Make a fist; drag to pan canvas.',
+    action: 'Stop Drawing',
+    desc: 'Make a fist to stop drawing.',
     key: '3',
   },
   {
@@ -67,8 +67,8 @@ const GESTURE_GUIDE = [
   {
     gesture: 'Three Fingers',
     name: 'Index, Middle, Ring Up',
-    action: 'None',
-    desc: 'Extend three fingers.',
+    action: 'Color Change',
+    desc: 'Extend three fingers to cycle colors.',
     key: '-',
   }
 ];

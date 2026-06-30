@@ -25,7 +25,7 @@ interface ToolbarProps {
   savePng: () => void;
 }
 
-const PRESET_COLORS = [
+export const PRESET_COLORS = [
   '#000000', // Black
   '#ef4444', // Red
   '#22c55e', // Green

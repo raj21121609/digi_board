@@ -1,12 +1,14 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import type { Point, DrawnStroke, ToolType, ViewState } from '../hooks/useWhiteboard';
 import type { GestureType, HandLandmark } from '../hooks/useHandTracking';
+import { PRESET_COLORS } from './Toolbar';
 
 interface CanvasProps {
   elements: DrawnStroke[];
   currentTool: ToolType;
   setTool: (tool: ToolType) => void;
   strokeColor: string;
+  setStrokeColor: (color: string) => void;
   strokeWidth: number;
   selectedElementId: string | null;
   setSelectedElementId: (id: string | null) => void;
@@ -26,6 +28,7 @@ export const Canvas: React.FC<CanvasProps> = ({
   currentTool,
   setTool,
   strokeColor,
+  setStrokeColor,
   strokeWidth,
   selectedElementId,
   setSelectedElementId,
@@ -217,13 +220,16 @@ export const Canvas: React.FC<CanvasProps> = ({
         actionLabel = 'Erasing';
       } else if (currentGesture === 'Closed Fist') {
         gestureColor = 'rgba(245, 158, 11, 0.9)'; // amber
-        actionLabel = 'Panning';
+        actionLabel = 'Stop Drawing';
       } else if (currentGesture === 'Peace Sign') {
         gestureColor = 'rgba(139, 92, 246, 0.9)'; // violet
         actionLabel = 'Selecting';
       } else if (currentGesture === 'Pinch') {
         gestureColor = 'rgba(236, 72, 153, 0.9)'; // pink
         actionLabel = 'Dragging';
+      } else if (currentGesture === 'Three Fingers') {
+        gestureColor = 'rgba(59, 130, 246, 0.9)'; // blue
+        actionLabel = 'Color Change';
       }
 
       ctx.strokeStyle = gestureColor;
@@ -338,34 +344,26 @@ export const Canvas: React.FC<CanvasProps> = ({
       }
     }
 
-    // 4. Fist Panning Gesture
+    // 4. Stop Drawing Gesture
     if (currentGesture === 'Closed Fist') {
-      if (lastGesturePosRef.current) {
-        // compute pixel offset on screen (panning is smoother in screen coordinates)
-        const lastScreenX = lastGesturePosRef.current.x * dimensions.width; // raw values
-        const lastScreenY = lastGesturePosRef.current.y * dimensions.height;
-        
-        const deltaX = screenX - lastScreenX;
-        const deltaY = screenY - lastScreenY;
+      // Intentionally does nothing. The transition away from "Index Finger" 
+      // automatically finalizes the current stroke in block #1 above.
+    }
 
-        setViewState((prev) => ({
-          ...prev,
-          pan: { x: prev.pan.x + deltaX, y: prev.pan.y + deltaY },
-        }));
+    // 5. Color Change
+    if (currentGesture === 'Three Fingers') {
+      if (prevGesture !== 'Three Fingers') {
+        const currentIndex = PRESET_COLORS.indexOf(strokeColor);
+        const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % PRESET_COLORS.length;
+        setStrokeColor(PRESET_COLORS[nextIndex]);
       }
     }
 
     // Update gesture history references
-    // For drag/pan gestures, we store screen coordinate equivalents or raw points
-    if (currentGesture === 'Closed Fist') {
-      // Store normalized landmarks to compute correct screen displacement in next loop
-      lastGesturePosRef.current = { x: indexTip.x, y: indexTip.y };
-    } else {
-      lastGesturePosRef.current = worldPos;
-    }
+    lastGesturePosRef.current = worldPos;
     lastGestureRef.current = currentGesture;
 
-  }, [landmarks, currentGesture, dimensions, getCanvasCoords, addStroke, eraseAt, selectedElementId, moveElement, setViewState, currentTool, setTool, selectAt]);
+  }, [landmarks, currentGesture, dimensions, getCanvasCoords, addStroke, eraseAt, selectedElementId, moveElement, setViewState, currentTool, setTool, selectAt, strokeColor, setStrokeColor]);
 
 
   // ----------------------------------------------------
