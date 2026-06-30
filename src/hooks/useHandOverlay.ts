@@ -4,8 +4,8 @@
  * Renders 21 landmarks + hand skeleton onto a <canvas> element
  * that sits on top of a <video> feed.
  *
- * Purely a rendering side-effect — returns nothing.
- * Call it with the latest `hands[]` from useHandTracking on every frame.
+ * Tracks the index fingertip, applies moving average smoothing,
+ * draws a green circle, and outputs coordinate labels.
  *
  * Colour palette:
  *   Right hand → violet (#a78bfa / #7c3aed)
@@ -16,7 +16,6 @@ import { useEffect, useRef } from 'react';
 import type { DetectedHand, HandLandmark } from './useHandTracking';
 
 // ─── MediaPipe Hand Connections ───────────────────────────────────────────────
-// Each tuple is [fromIdx, toIdx] matching the 21-landmark model.
 export const HAND_CONNECTIONS: [number, number][] = [
   // Thumb
   [0, 1], [1, 2], [2, 3], [3, 4],
@@ -32,7 +31,7 @@ export const HAND_CONNECTIONS: [number, number][] = [
   [5, 9], [9, 13], [13, 17],
 ];
 
-// Per-finger base colours (for landmark dots) — index 0 is wrist/palm
+// Per-finger base colours
 const FINGER_COLORS = [
   '#94a3b8', // wrist (0)
   '#f59e0b', '#f59e0b', '#f59e0b', '#f59e0b', // thumb (1-4)
@@ -52,7 +51,8 @@ interface OverlayStyle {
 export function useHandOverlay(
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
   hands: DetectedHand[],
-  style: OverlayStyle = {}
+  style: OverlayStyle = {},
+  onFingertipChange?: (coords: { x: number; y: number } | null) => void
 ) {
   const {
     landmarkRadius = 5,
@@ -61,9 +61,8 @@ export function useHandOverlay(
     landmarkAlpha  = 1,
   } = style;
 
-  // Keep a ref to latest hands so the draw call always has fresh data
-  const handsRef = useRef(hands);
-  useEffect(() => { handsRef.current = hands; }, [hands]);
+  // History buffer for fingertip coordinates moving average filtering
+  const fingertipHistoryRef = useRef<{ x: number; y: number }[]>([]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -83,15 +82,14 @@ export function useHandOverlay(
       py: lm.y * ch,
     });
 
+    // 1. Draw connections and joints for all hands
     for (const hand of hands) {
       const isRight = hand.handedness === 'Right';
-
-      // Skeleton colour (semi-transparent)
       const skeletonColor = isRight
-        ? `rgba(167, 139, 250, ${skeletonAlpha})` // violet
-        : `rgba(103, 232, 249, ${skeletonAlpha})`; // cyan
+        ? `rgba(167, 139, 250, ${skeletonAlpha})`
+        : `rgba(103, 232, 249, ${skeletonAlpha})`;
 
-      // ── Skeleton (connections) ──────────────────────────────────────────────
+      // Draw Skeleton
       ctx.save();
       ctx.strokeStyle = skeletonColor;
       ctx.lineWidth   = skeletonWidth;
@@ -108,7 +106,7 @@ export function useHandOverlay(
       }
       ctx.restore();
 
-      // ── Landmarks (dots) ────────────────────────────────────────────────────
+      // Draw Landmark Dots
       hand.landmarks.forEach((lm, i) => {
         const { px, py } = toPixel(lm);
         const baseColor  = FINGER_COLORS[i] ?? '#94a3b8';
@@ -116,7 +114,7 @@ export function useHandOverlay(
         ctx.save();
         ctx.globalAlpha = landmarkAlpha;
 
-        // Outer ring (hand-colour tint)
+        // Outer ring
         ctx.beginPath();
         ctx.arc(px, py, landmarkRadius + 1.5, 0, Math.PI * 2);
         ctx.fillStyle = isRight
@@ -124,13 +122,13 @@ export function useHandOverlay(
           : 'rgba(8, 145, 178, 0.5)';
         ctx.fill();
 
-        // Inner dot (finger colour)
+        // Inner dot
         ctx.beginPath();
         ctx.arc(px, py, landmarkRadius, 0, Math.PI * 2);
         ctx.fillStyle = baseColor;
         ctx.fill();
 
-        // Tip highlights (landmarks 4,8,12,16,20) — larger bright dot
+        // Tip highlights
         if ([4, 8, 12, 16, 20].includes(i)) {
           ctx.beginPath();
           ctx.arc(px, py, landmarkRadius * 0.45, 0, Math.PI * 2);
@@ -141,7 +139,7 @@ export function useHandOverlay(
         ctx.restore();
       });
 
-      // ── Handedness label near the wrist ─────────────────────────────────────
+      // Handedness label near the wrist
       const wrist = toPixel(hand.landmarks[0]);
       ctx.save();
       ctx.font         = 'bold 13px Inter, sans-serif';
@@ -156,5 +154,60 @@ export function useHandOverlay(
       );
       ctx.restore();
     }
-  }, [hands, canvasRef, landmarkRadius, skeletonWidth, skeletonAlpha, landmarkAlpha]);
+
+    // 2. Track, Smooth, and Highlight the Index Fingertip
+    const firstHand = hands[0];
+    if (firstHand && firstHand.landmarks[8]) {
+      const indexTip = firstHand.landmarks[8];
+      const { px, py } = toPixel(indexTip);
+
+      // Moving average smoothing window
+      const history = fingertipHistoryRef.current;
+      history.push({ x: px, y: py });
+
+      const WINDOW_SIZE = 8;
+      if (history.length > WINDOW_SIZE) {
+        history.shift();
+      }
+
+      // Compute smoothed position
+      const sum = history.reduce((acc, curr) => ({ x: acc.x + curr.x, y: acc.y + curr.y }), { x: 0, y: 0 });
+      const smoothedX = sum.x / history.length;
+      const smoothedY = sum.y / history.length;
+
+      // Draw neon green circle on index fingertip
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(smoothedX, smoothedY, 8, 0, Math.PI * 2);
+      ctx.fillStyle = '#22c55e'; // Green
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2.5;
+      ctx.shadowColor = '#22c55e';
+      ctx.shadowBlur = 12;
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+
+      // Render coordinates text (X, Y) next to the green circle
+      ctx.save();
+      ctx.font = 'bold 12px monospace';
+      ctx.fillStyle = '#22c55e';
+      ctx.shadowColor = 'rgba(0,0,0,0.85)';
+      ctx.shadowBlur = 4;
+
+      const labelText = `X: ${Math.round(smoothedX)}, Y: ${Math.round(smoothedY)}`;
+
+      // Un-mirror the text drawing context
+      ctx.translate(smoothedX, smoothedY);
+      ctx.scale(-1, 1);
+      ctx.fillText(labelText, 14, -12);
+      ctx.restore();
+
+      // Bubble coordinates back to React
+      onFingertipChange?.({ x: smoothedX, y: smoothedY });
+    } else {
+      fingertipHistoryRef.current = [];
+      onFingertipChange?.(null);
+    }
+  }, [hands, canvasRef, landmarkRadius, skeletonWidth, skeletonAlpha, landmarkAlpha, onFingertipChange]);
 }

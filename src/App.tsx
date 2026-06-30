@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { Toolbar } from './components/Toolbar';
 import { Canvas } from './components/Canvas';
@@ -6,27 +6,60 @@ import { GestureSidebar } from './components/GestureSidebar';
 import { StatusBar } from './components/StatusBar';
 import { useWhiteboard } from './hooks/useWhiteboard';
 import { useHandTracking } from './hooks/useHandTracking';
-import type { WebcamViewHandle } from './components/WebcamView';
+import { useWebcam } from './hooks/useWebcam';
 
 function App() {
-  /**
-   * webcamRef exposes the imperative handle of <WebcamView> so we can:
-   *  - read webcamRef.current.videoElement  → fed into useHandTracking
-   *  - read webcamRef.current.canvasElement → already-mirrored frames for ML
-   *  - call start() / stop() programmatically from the Navbar button
-   */
-  const webcamRef = useRef<WebcamViewHandle | null>(null);
+  // ── Whiteboard canvas ref ─────────────────────────────────────────────────
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // ── Build a stable videoRef that proxies into webcamRef ─────────────────
-  // useHandTracking expects a React.RefObject<HTMLVideoElement|null>.
-  // We create a stable ref object whose .current getter always reads
-  // webcamRef.current.videoElement so the hook always has a live reference.
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  // Sync on every render (cheap – just a property assignment)
-  videoRef.current = webcamRef.current?.videoElement ?? null;
+  // ── Webcam (camera source) ────────────────────────────────────────────────
+  // useWebcam owns the MediaStream. Its videoRef is piped into useHandTracking.
+  const {
+    videoRef,
+    state: webcamState,
+    start: startWebcam,
+    stop: stopWebcam,
+  } = useWebcam({ width: 640, height: 480 });
+
+  // Derive simple booleans for child components
+  const isCameraActive = webcamState.isActive;
+  const cameraError    = webcamState.error;
+
+  // ── AI hand tracking (consumes the video element via videoRef) ───────────
+  const {
+    isReady,
+    isLoading: isModelLoading,
+    error: modelError,
+    currentGesture,
+    landmarks,
+    fps,
+    startDetection,
+    stopDetection,
+  } = useHandTracking(videoRef);
+
+  // ── Camera toggle ─────────────────────────────────────────────────────────
+  const handleToggleCamera = useCallback(async () => {
+    if (isCameraActive) {
+      stopDetection();
+      stopWebcam();
+    } else {
+      await startWebcam();
+      // Detection is started by the effect below once the model is ready —
+      // calling startDetection() here would no-op if the model is still loading.
+    }
+  }, [isCameraActive, startWebcam, stopWebcam, stopDetection]);
+
+  // Start detection only when BOTH the camera is live and the model is ready.
+  // This handles the common case where the user clicks "Start" before the
+  // MediaPipe model has finished loading.
+  useEffect(() => {
+    if (isCameraActive && isReady) {
+      startDetection();
+    }
+  }, [isCameraActive, isReady, startDetection]);
 
   // ── Whiteboard state ─────────────────────────────────────────────────────
+
   const {
     elements,
     currentTool,
@@ -47,37 +80,6 @@ function App() {
     eraseAt,
     selectAt,
   } = useWhiteboard();
-
-  // ── AI hand tracking (consumes the video element via videoRef) ───────────
-  const {
-    isLoaded: isModelLoaded,
-    isCameraActive,
-    cameraError,
-    currentGesture,
-    fps,
-    landmarks,
-    startCamera,
-    stopCamera,
-  } = useHandTracking(videoRef);
-
-  // ── Camera toggle (wires Navbar button → useHandTracking) ────────────────
-  const handleToggleCamera = useCallback(() => {
-    if (isCameraActive) {
-      stopCamera();
-    } else {
-      // Make sure the WebcamView's video is playing before starting MediaPipe
-      webcamRef.current?.start().then(() => startCamera());
-    }
-  }, [isCameraActive, startCamera, stopCamera]);
-
-  // Called by GestureSidebar's WebcamView onStart / onStop callbacks
-  const handleWebcamStart = useCallback(() => {
-    startCamera();
-  }, [startCamera]);
-
-  const handleWebcamStop = useCallback(() => {
-    stopCamera();
-  }, [stopCamera]);
 
   // ── Export whiteboard as PNG ─────────────────────────────────────────────
   const handleSavePng = useCallback(() => {
@@ -110,7 +112,7 @@ function App() {
         isCameraActive={isCameraActive}
         cameraError={cameraError}
         onToggleCamera={handleToggleCamera}
-        isModelLoaded={isModelLoaded}
+        isModelLoaded={isReady}
       />
 
       {/* Main Workspace */}
@@ -149,14 +151,16 @@ function App() {
           canvasRef={canvasRef}
         />
 
-        {/* Right Sidebar — hosts WebcamView + gesture status */}
+        {/* Right Sidebar — hosts webcam feed + gesture status */}
         <GestureSidebar
           isCameraActive={isCameraActive}
           landmarks={landmarks}
           currentGesture={currentGesture}
-          webcamRef={webcamRef}
+          videoRef={videoRef}
           onToggleCamera={handleToggleCamera}
           fps={fps}
+          modelLoading={isModelLoading}
+          modelError={modelError}
         />
       </div>
 

@@ -42,6 +42,8 @@ export default function HandOverlay({
   options        = {},
   className      = '',
 }: HandOverlayProps) {
+  const [fingertip, setFingertip] = useState<{ x: number; y: number } | null>(null);
+
   // ── Webcam stream ──────────────────────────────────────────────────────────
   const {
     videoRef,
@@ -89,7 +91,8 @@ export default function HandOverlay({
     {
       landmarkRadius: showLandmarks ? 5 : 0,
       skeletonWidth:  showSkeleton  ? 2.5 : 0,
-    }
+    },
+    setFingertip
   );
 
   // ── Start / Stop handler ───────────────────────────────────────────────────
@@ -151,6 +154,35 @@ export default function HandOverlay({
             transform: 'scaleX(-1)', // mirror to match video
           }}
         />
+
+        {/* Fingertip coordinates overlay card */}
+        {fingertip && (
+          <div style={{
+            position: 'absolute',
+            top: 16,
+            left: 16,
+            background: 'rgba(15, 23, 42, 0.85)',
+            backdropFilter: 'blur(8px)',
+            border: '1px solid rgba(34, 197, 94, 0.4)',
+            borderRadius: 8,
+            padding: '8px 12px',
+            color: '#22c55e',
+            fontSize: 12,
+            fontFamily: 'monospace',
+            zIndex: 20,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+            pointerEvents: 'none'
+          }}>
+            <div style={{ fontWeight: 'bold', fontSize: 10, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              ☝ Index Fingertip
+            </div>
+            <div>X: <span style={{ color: '#ffffff' }}>{fingertip.x.toFixed(1)}px</span></div>
+            <div>Y: <span style={{ color: '#ffffff' }}>{fingertip.y.toFixed(1)}px</span></div>
+          </div>
+        )}
 
         {/* Loading state */}
         {tracking.isLoading && (

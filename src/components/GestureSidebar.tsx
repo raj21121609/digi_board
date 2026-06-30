@@ -1,17 +1,19 @@
-import React, { useRef, useEffect } from 'react';
-import { Eye, Info, Video, Keyboard } from 'lucide-react';
+import React, { useRef, useEffect, useState } from 'react';
+import { Eye, Info, Video, Keyboard, Camera, CameraOff } from 'lucide-react';
 import type { GestureType, HandLandmark } from '../hooks/useHandTracking';
-import { WebcamView } from './WebcamView';
-import type { WebcamViewHandle } from './WebcamView';
 
 interface GestureSidebarProps {
   isCameraActive: boolean;
   landmarks: HandLandmark[] | null;
   currentGesture: GestureType;
-  /** Forwarded so App can bind the same webcam control used by useHandTracking */
-  webcamRef: React.RefObject<WebcamViewHandle | null>;
+  /** Direct ref to the shared <video> element owned by useWebcam in App */
+  videoRef: React.RefObject<HTMLVideoElement | null>;
   onToggleCamera: () => void;
   fps: number;
+  /** True while the MediaPipe hand model is loading */
+  modelLoading?: boolean;
+  /** Non-null if the MediaPipe hand model failed to initialise */
+  modelError?: string | null;
 }
 
 const GESTURE_GUIDE = [
@@ -56,11 +58,33 @@ export const GestureSidebar: React.FC<GestureSidebarProps> = ({
   isCameraActive,
   landmarks,
   currentGesture,
-  webcamRef,
+  videoRef,
   onToggleCamera,
   fps,
+  modelLoading = false,
+  modelError = null,
 }) => {
   const landmarkCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // ── Index-fingertip tracking state ──────────────────────────────────────────
+  // Moving-average buffer (normalized coords) for jitter-free fingertip tracking,
+  // plus the smoothed pixel coordinates we surface in the on-feed readout.
+  const fingertipHistory = useRef<{ x: number; y: number }[]>([]);
+  const lastDisplayedRef = useRef<{ x: number; y: number } | null>(null);
+  const [fingertip, setFingertip] = useState<{ x: number; y: number } | null>(null);
+
+  // Smoothing window + reference resolution for the displayed coordinates
+  // (matches the 640×480 capture configured by useWebcam in App).
+  const SMOOTH_WINDOW = 8;
+  const REF_W = 640;
+  const REF_H = 480;
+
+  // NOTE: The <video> below is bound DIRECTLY to the shared `videoRef` owned by
+  // useWebcam in App. useWebcam sets srcObject + plays on this exact element,
+  // and useHandTracking reads frames from it. Binding it here (instead of a
+  // separate display ref) is what lets the camera actually start and feed
+  // MediaPipe — without it, videoRef.current stays null and no hands are ever
+  // detected.
 
   // ── Draw hand landmarks overlay ───────────────────────────────────────────
   useEffect(() => {
@@ -70,7 +94,15 @@ export const GestureSidebar: React.FC<GestureSidebarProps> = ({
     if (!ctx) return;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (!landmarks) return;
+    if (!landmarks) {
+      // No hand → reset the smoothing buffer and clear the readout.
+      fingertipHistory.current = [];
+      if (lastDisplayedRef.current !== null) {
+        lastDisplayedRef.current = null;
+        setFingertip(null);
+      }
+      return;
+    }
 
     const drawConnection = (from: number, to: number) => {
       const p1 = landmarks[from];
@@ -107,45 +139,179 @@ export const GestureSidebar: React.FC<GestureSidebarProps> = ({
       ctx.fill();
     });
     ctx.shadowBlur = 0;
+
+    // ── Index fingertip (landmark 8): smooth → draw green circle → read out ───
+    const tip = landmarks[8];
+    if (tip) {
+      // Moving-average filter in normalized space to kill per-frame jitter.
+      const hist = fingertipHistory.current;
+      hist.push({ x: tip.x, y: tip.y });
+      if (hist.length > SMOOTH_WINDOW) hist.shift();
+
+      const sum = hist.reduce((a, p) => ({ x: a.x + p.x, y: a.y + p.y }), { x: 0, y: 0 });
+      const sx = sum.x / hist.length;
+      const sy = sum.y / hist.length;
+
+      // Draw on the mirrored canvas (video is flipped for selfie view, so x → 1 - x).
+      const cx = (1 - sx) * canvas.width;
+      const cy = sy * canvas.height;
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, 7, 0, 2 * Math.PI);
+      ctx.fillStyle = '#22c55e';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2.5;
+      ctx.shadowColor = '#22c55e';
+      ctx.shadowBlur = 12;
+      ctx.fill();
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Surface smoothed coordinates in 640×480 reference pixels, matching the
+      // mirrored on-screen position. Only update state when the rounded value
+      // changes to avoid redundant re-renders.
+      const dispX = Math.round((1 - sx) * REF_W);
+      const dispY = Math.round(sy * REF_H);
+      const prev = lastDisplayedRef.current;
+      if (!prev || prev.x !== dispX || prev.y !== dispY) {
+        lastDisplayedRef.current = { x: dispX, y: dispY };
+        setFingertip({ x: dispX, y: dispY });
+      }
+    } else {
+      fingertipHistory.current = [];
+      if (lastDisplayedRef.current !== null) {
+        lastDisplayedRef.current = null;
+        setFingertip(null);
+      }
+    }
   }, [landmarks]);
+
+  // FPS colour
+  const fpsColor =
+    fps >= 24 ? 'bg-emerald-500/90 text-white' :
+    fps >= 12 ? 'bg-amber-500/90 text-white' :
+                'bg-rose-500/90 text-white';
 
   return (
     <aside className="w-80 h-[calc(100vh-4rem)] bg-slate-900 border-l border-slate-800 flex flex-col z-20 overflow-y-auto">
 
-      {/* ── WebcamView (reusable component) ─────────────────────────────── */}
+      {/* ── Camera Feed ──────────────────────────────────────────────────── */}
       <div className="p-4 border-b border-slate-800 flex flex-col gap-3">
         <h3 className="text-xs font-bold text-slate-400 tracking-wider uppercase flex items-center gap-1.5">
           <Video className="h-4 w-4 text-blue-400" />
           Camera Feed
         </h3>
 
-        {/* The WebcamView is rendered here and its imperative handle is exposed
-            so App.tsx can call webcamRef.current.videoElement and pipe it into
-            the gesture recognition module (useHandTracking). */}
-        <div className="relative">
-          <WebcamView
-            ref={webcamRef}
-            width={640}
-            height={480}
-            showFps={true}
-            showResolution={false}
-            showControls={true}
-            startLabel="Start Hand Track"
-            stopLabel="Stop Hand Track"
-            onStart={onToggleCamera}
-            onStop={onToggleCamera}
-            className="w-full"
-          />
+        {/* Video + landmark overlay stack */}
+        <div className="relative rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 shadow-xl">
+          <div className="relative w-full" style={{ aspectRatio: '4/3' }}>
+            {/* Live video element — mirrors the stream from App's useWebcam */}
+            <video
+              ref={videoRef}
+              className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
+                isCameraActive ? 'opacity-100' : 'opacity-0 pointer-events-none'
+              }`}
+              style={{ transform: 'scaleX(-1)' }}
+              muted
+              playsInline
+              aria-label="Webcam feed"
+            />
 
-          {/* Landmark skeleton overlay – sits on top of the webcam feed */}
-          <canvas
-            ref={landmarkCanvasRef}
-            width={320}
-            height={240}
-            className="absolute inset-0 w-full pointer-events-none z-10"
-            style={{ aspectRatio: '4/3' }}
-          />
+            {/* Placeholder when camera is off */}
+            {!isCameraActive && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950">
+                <div className="p-4 rounded-full bg-slate-900 border border-slate-800">
+                  <Camera className="h-8 w-8 text-slate-600" />
+                </div>
+                <p className="text-xs text-slate-500 font-medium">Camera is off</p>
+              </div>
+            )}
+
+            {/* Live badge */}
+            {isCameraActive && (
+              <div className="absolute top-2.5 left-2.5 flex flex-col gap-1.5 pointer-events-none">
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full bg-rose-600/90 text-white shadow">
+                  <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
+                  Live
+                </span>
+                <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full shadow ${fpsColor}`}>
+                  {fps} FPS
+                </span>
+              </div>
+            )}
+
+            {/* Landmark skeleton overlay */}
+            <canvas
+              ref={landmarkCanvasRef}
+              width={320}
+              height={240}
+              className="absolute inset-0 w-full h-full pointer-events-none z-10"
+            />
+
+            {/* Index fingertip coordinate readout */}
+            {isCameraActive && fingertip && (
+              <div className="absolute top-2.5 right-2.5 z-20 pointer-events-none flex flex-col gap-0.5 rounded-lg border border-emerald-500/40 bg-slate-950/85 px-2.5 py-1.5 font-mono shadow-lg backdrop-blur-sm">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                  ☝ Index Fingertip
+                </span>
+                <span className="text-[11px] text-emerald-400">
+                  X: <span className="text-white">{fingertip.x}</span> px
+                </span>
+                <span className="text-[11px] text-emerald-400">
+                  Y: <span className="text-white">{fingertip.y}</span> px
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Controls bar */}
+          <div className="flex items-center justify-between gap-2 px-4 py-3 bg-slate-900 border-t border-slate-800">
+            <div className="flex items-center gap-2">
+              <div className={`h-2 w-2 rounded-full transition-colors duration-300 ${
+                isCameraActive
+                  ? 'bg-emerald-400 shadow-sm shadow-emerald-500/60 animate-pulse'
+                  : 'bg-slate-600'
+              }`} />
+              <span className="text-[11px] font-semibold text-slate-400 select-none">
+                {isCameraActive ? 'Camera Active' : 'Camera Off'}
+              </span>
+            </div>
+
+            <button
+              onClick={onToggleCamera}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all duration-200 cursor-pointer ${
+                isCameraActive
+                  ? 'bg-rose-600/20 text-rose-300 border border-rose-500/30 hover:bg-rose-600/30'
+                  : 'bg-blue-600 text-white hover:bg-blue-500 shadow hover:shadow-blue-500/25'
+              }`}
+            >
+              {isCameraActive ? (
+                <>
+                  <CameraOff className="h-3.5 w-3.5" />
+                  Stop Hand Track
+                </>
+              ) : (
+                <>
+                  <Camera className="h-3.5 w-3.5" />
+                  Start Hand Track
+                </>
+              )}
+            </button>
+          </div>
         </div>
+
+        {/* AI model status / errors */}
+        {modelLoading && (
+          <div className="text-[11px] font-medium text-amber-400 flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+            Loading hand model…
+          </div>
+        )}
+        {modelError && (
+          <div className="text-[11px] font-semibold text-rose-400 bg-rose-950/40 border border-rose-900/60 rounded-lg px-2.5 py-1.5 leading-snug">
+            ⚠ Hand model failed to load: {modelError}
+          </div>
+        )}
       </div>
 
       {/* ── Live Gesture Status ───────────────────────────────────────────── */}

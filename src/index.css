@@ -740,7 +740,8 @@ input[type='range'] {
 /* ── HandView ─────────────────────────────────────────────────────── */
 
 .hv-root {
-  min-height: 100vh;
+  height: 100%;
+  box-sizing: border-box;
   background: var(--bg-deepest);
   padding: 24px 32px;
   overflow-y: auto;
