@@ -21,7 +21,11 @@ import React, {
 import { useWebcam }         from '../hooks/useWebcam';
 import { useHandTracking }   from '../hooks/useHandTracking';
 import { useHandOverlay }    from '../hooks/useHandOverlay';
+import { useAirDrawing }     from '../hooks/useAirDrawing';
 import type { DetectedHand, HandTrackingOptions } from '../hooks/useHandTracking';
+
+// Air-drawing pen colours.
+const PEN_COLORS = ['#22d3ee', '#f43f5e', '#a3e635', '#fbbf24', '#ffffff'];
 
 export interface HandOverlayProps {
   width?:           number;
@@ -44,10 +48,22 @@ export default function HandOverlay({
 }: HandOverlayProps) {
   const [fingertip, setFingertip] = useState<{ x: number; y: number } | null>(null);
 
+  // Dedicated canvas for the landmark/skeleton overlay. This MUST be separate
+  // from useWebcam's `canvasRef`: useWebcam uses its canvas as an internal mirror
+  // buffer, repainting the video frame (and resetting width/height, which clears
+  // the canvas) on every animation frame — which would erase the overlay ~60×/s.
+  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Dedicated, persistent canvas for air-drawn strokes (separate from the
+  // per-frame landmark overlay, which clears itself every frame).
+  const airCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [penColor, setPenColor] = useState(PEN_COLORS[0]);
+
   // ── Webcam stream ──────────────────────────────────────────────────────────
+  // `canvasRef` here is useWebcam's offscreen processing buffer — intentionally
+  // left unmounted/unused; the overlay draws onto `overlayCanvasRef` instead.
   const {
     videoRef,
-    canvasRef,
     state: webcamState,
     start: startWebcam,
     stop: stopWebcam
@@ -70,14 +86,16 @@ export default function HandOverlay({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [webcamState.isActive, tracking.isReady]);
 
-  // Sync canvas size to video
+  // Sync overlay + air-drawing canvas sizes to the configured dimensions
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (canvas) {
-      canvas.width  = width;
-      canvas.height = height;
+    for (const ref of [overlayCanvasRef, airCanvasRef]) {
+      const canvas = ref.current;
+      if (canvas) {
+        canvas.width  = width;
+        canvas.height = height;
+      }
     }
-  }, [width, height, canvasRef]);
+  }, [width, height]);
 
   // Fire onHandsChange callback
   useEffect(() => {
@@ -86,13 +104,23 @@ export default function HandOverlay({
 
   // ── Overlay rendering (no-op if toggles are off) ──────────────────────────
   useHandOverlay(
-    canvasRef,
+    overlayCanvasRef,
     showLandmarks || showSkeleton ? tracking.hands : [],
     {
       landmarkRadius: showLandmarks ? 5 : 0,
       skeletonWidth:  showSkeleton  ? 2.5 : 0,
     },
     setFingertip
+  );
+
+  // ── Air drawing ────────────────────────────────────────────────────────────
+  // Draw only when the "pointing" gesture is active (index finger raised alone),
+  // following the smoothed fingertip. Lowering the finger ends the stroke.
+  const air = useAirDrawing(
+    airCanvasRef,
+    tracking.currentGesture === 'pointing',
+    fingertip,
+    { color: penColor, width: 4 }
   );
 
   // ── Start / Stop handler ───────────────────────────────────────────────────
@@ -141,9 +169,23 @@ export default function HandOverlay({
           }}
         />
 
+        {/* Air-drawn strokes (persistent; sits below the landmark overlay) */}
+        <canvas
+          ref={airCanvasRef}
+          id="hand-overlay-air-canvas"
+          width={width}
+          height={height}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            transform: 'scaleX(-1)', // mirror to match video + landmarks
+          }}
+        />
+
         {/* Landmark overlay */}
         <canvas
-          ref={canvasRef}
+          ref={overlayCanvasRef}
           id="hand-overlay-canvas"
           width={width}
           height={height}
@@ -214,7 +256,66 @@ export default function HandOverlay({
           {webcamState.isActive && (
             <span className="ho-chip ho-chip-fps">{tracking.fps} FPS</span>
           )}
+          {webcamState.isActive && air.isDrawing && (
+            <span
+              className="ho-chip ho-chip-active"
+              style={{ background: penColor, color: '#0a0b0e', fontWeight: 700 }}
+            >
+              ✏ Drawing
+            </span>
+          )}
         </div>
+      </div>
+
+      {/* ── Air-drawing controls ─────────────────────────────────────────── */}
+      <div
+        className="ho-controls"
+        style={{ flexWrap: 'wrap', alignItems: 'center', gap: 8 }}
+      >
+        <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          ✏ Air Pen
+        </span>
+
+        {/* Colour swatches */}
+        <div style={{ display: 'flex', gap: 6 }}>
+          {PEN_COLORS.map((c) => (
+            <button
+              key={c}
+              aria-label={`Pen colour ${c}`}
+              onClick={() => setPenColor(c)}
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: '50%',
+                background: c,
+                cursor: 'pointer',
+                border: penColor === c ? '2px solid #ffffff' : '2px solid transparent',
+                boxShadow: penColor === c ? `0 0 0 2px ${c}` : 'none',
+              }}
+            />
+          ))}
+        </div>
+
+        <button
+          id="ho-btn-air-undo"
+          className="ho-btn ho-btn-ghost"
+          onClick={air.undo}
+          disabled={air.strokeCount === 0}
+        >
+          ↶ Undo
+        </button>
+        <button
+          id="ho-btn-air-clear"
+          className="ho-btn ho-btn-ghost"
+          onClick={air.clear}
+          disabled={air.strokeCount === 0 && !air.isDrawing}
+        >
+          🗑 Clear
+        </button>
+
+        <span style={{ fontSize: 11, color: '#64748b', marginLeft: 'auto' }}>
+          {air.strokeCount} stroke{air.strokeCount === 1 ? '' : 's'}
+        </span>
       </div>
 
       {/* ── Controls bar ─────────────────────────────────────────────────── */}
