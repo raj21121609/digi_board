@@ -1,6 +1,18 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Eye, Info, Video, Keyboard, Camera, CameraOff } from 'lucide-react';
 import type { GestureType, HandLandmark } from '../hooks/useHandTracking';
+import { HAND_CONNECTIONS } from '../hooks/useHandOverlay';
+
+// Per-finger joint colours for the 21 landmarks (wrist, thumb, index, middle,
+// ring, pinky) — mirrors the MediaPipe convention used in useHandOverlay.
+const FINGER_COLORS = [
+  '#94a3b8',                                     // wrist (0)
+  '#f59e0b', '#f59e0b', '#f59e0b', '#f59e0b',    // thumb  (1-4)
+  '#22c55e', '#22c55e', '#22c55e', '#22c55e',    // index  (5-8)
+  '#3b82f6', '#3b82f6', '#3b82f6', '#3b82f6',    // middle (9-12)
+  '#f97316', '#f97316', '#f97316', '#f97316',    // ring   (13-16)
+  '#ec4899', '#ec4899', '#ec4899', '#ec4899',    // pinky  (17-20)
+];
 
 interface GestureSidebarProps {
   isCameraActive: boolean;
@@ -104,37 +116,39 @@ export const GestureSidebar: React.FC<GestureSidebarProps> = ({
       return;
     }
 
-    const drawConnection = (from: number, to: number) => {
-      const p1 = landmarks[from];
-      const p2 = landmarks[to];
-      if (!p1 || !p2) return;
-      ctx.beginPath();
-      ctx.moveTo((1 - p1.x) * canvas.width, p1.y * canvas.height);
-      ctx.lineTo((1 - p2.x) * canvas.width, p2.y * canvas.height);
-      ctx.stroke();
-    };
-
-    ctx.strokeStyle = 'rgba(59,130,246,0.65)';
-    ctx.lineWidth = 2.5;
-
-    // Thumb
-    [0,1,2,3].forEach((i) => drawConnection(i, i + 1));
-    // Palm knuckle bar
-    [[5,9],[9,13],[13,17]].forEach(([a, b]) => drawConnection(a, b));
-    // Fingers
-    [[0,5,6,7,8],[0,9,10,11,12],[0,13,14,15,16],[0,17,18,19,20]].forEach((finger) => {
-      for (let i = 0; i < finger.length - 1; i++) drawConnection(finger[i], finger[i + 1]);
+    // Convert a normalized landmark to canvas pixels. The feed is mirrored for
+    // selfie view but this canvas is NOT CSS-flipped, so we un-mirror x (1 - x).
+    const toPx = (lm: HandLandmark) => ({
+      x: (1 - lm.x) * canvas.width,
+      y: lm.y * canvas.height,
     });
 
-    // Joints
-    landmarks.forEach((lm, idx) => {
-      const isTip = [4, 8, 12, 16, 20].includes(idx);
-      const x = (1 - lm.x) * canvas.width;
-      const y = lm.y * canvas.height;
+    // 1. Skeleton connections — full MediaPipe 21-point connection set.
+    ctx.strokeStyle = 'rgba(59,130,246,0.65)';
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (const [a, b] of HAND_CONNECTIONS) {
+      const p1 = landmarks[a];
+      const p2 = landmarks[b];
+      if (!p1 || !p2) continue;
+      const from = toPx(p1);
+      const to = toPx(p2);
       ctx.beginPath();
-      ctx.arc(x, y, isTip ? 6 : 3.5, 0, 2 * Math.PI);
-      ctx.fillStyle = isTip ? '#10b981' : '#3b82f6';
-      ctx.shadowColor = isTip ? '#10b981' : '#3b82f6';
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+    }
+
+    // 2. All 21 landmark joints — per-finger colours, fingertips enlarged.
+    landmarks.forEach((lm, idx) => {
+      const isTip = idx === 4 || idx === 8 || idx === 12 || idx === 16 || idx === 20;
+      const { x, y } = toPx(lm);
+      const color = FINGER_COLORS[idx] ?? '#3b82f6';
+      ctx.beginPath();
+      ctx.arc(x, y, isTip ? 5.5 : 3.5, 0, 2 * Math.PI);
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
       ctx.shadowBlur = 5;
       ctx.fill();
     });
