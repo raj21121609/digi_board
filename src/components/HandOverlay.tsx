@@ -179,7 +179,6 @@ export default function HandOverlay({
             position: 'absolute',
             inset: 0,
             pointerEvents: 'none',
-            transform: 'scaleX(-1)', // mirror to match video + landmarks
           }}
         />
 
@@ -193,7 +192,6 @@ export default function HandOverlay({
             position: 'absolute',
             inset: 0,
             pointerEvents: 'none',
-            transform: 'scaleX(-1)', // mirror to match video
           }}
         />
 

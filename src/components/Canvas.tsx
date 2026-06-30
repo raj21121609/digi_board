@@ -198,8 +198,7 @@ export const Canvas: React.FC<CanvasProps> = ({
     // Render AI Floating Pointer Circle overlay if hand landmarks are available
     if (landmarks && landmarks.length > 8) {
       const indexTip = landmarks[8];
-      // Mirror X coordinates
-      const screenX = (1 - indexTip.x) * dimensions.width;
+      const screenX = indexTip.x * dimensions.width;
       const screenY = indexTip.y * dimensions.height;
 
       ctx.save();
@@ -287,7 +286,7 @@ export const Canvas: React.FC<CanvasProps> = ({
     }
 
     const indexTip = landmarks[8];
-    const screenX = (1 - indexTip.x) * dimensions.width;
+    const screenX = indexTip.x * dimensions.width;
     const screenY = indexTip.y * dimensions.height;
     
     // Get world coords for drawing
@@ -343,7 +342,7 @@ export const Canvas: React.FC<CanvasProps> = ({
     if (currentGesture === 'fist') {
       if (lastGesturePosRef.current) {
         // compute pixel offset on screen (panning is smoother in screen coordinates)
-        const lastScreenX = (1 - lastGesturePosRef.current.x) * dimensions.width; // raw values
+        const lastScreenX = lastGesturePosRef.current.x * dimensions.width; // raw values
         const lastScreenY = lastGesturePosRef.current.y * dimensions.height;
         
         const deltaX = screenX - lastScreenX;

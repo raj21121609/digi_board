@@ -197,10 +197,7 @@ export function useHandOverlay(
 
       const labelText = `X: ${Math.round(smoothedX)}, Y: ${Math.round(smoothedY)}`;
 
-      // Un-mirror the text drawing context
-      ctx.translate(smoothedX, smoothedY);
-      ctx.scale(-1, 1);
-      ctx.fillText(labelText, 14, -12);
+      ctx.fillText(labelText, smoothedX + 14, smoothedY - 12);
       ctx.restore();
 
       // Bubble coordinates back to React
