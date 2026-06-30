@@ -209,19 +209,19 @@ export const Canvas: React.FC<CanvasProps> = ({
       let gestureColor = 'rgba(59, 130, 246, 0.8)'; // default blue
       let actionLabel = 'Searching...';
 
-      if (currentGesture === 'pointing') {
+      if (currentGesture === 'Index Finger') {
         gestureColor = 'rgba(16, 185, 129, 0.9)'; // emerald
         actionLabel = 'Drawing';
-      } else if (currentGesture === 'eraser') {
+      } else if (currentGesture === 'Open Palm') {
         gestureColor = 'rgba(239, 68, 68, 0.9)'; // rose
         actionLabel = 'Erasing';
-      } else if (currentGesture === 'fist') {
+      } else if (currentGesture === 'Closed Fist') {
         gestureColor = 'rgba(245, 158, 11, 0.9)'; // amber
         actionLabel = 'Panning';
-      } else if (currentGesture === 'two-fingers') {
+      } else if (currentGesture === 'Peace Sign') {
         gestureColor = 'rgba(139, 92, 246, 0.9)'; // violet
         actionLabel = 'Selecting';
-      } else if (currentGesture === 'pinch') {
+      } else if (currentGesture === 'Pinch') {
         gestureColor = 'rgba(236, 72, 153, 0.9)'; // pink
         actionLabel = 'Dragging';
       }
@@ -281,7 +281,7 @@ export const Canvas: React.FC<CanvasProps> = ({
         activeStrokeFromGestureRef.current = [];
       }
       lastGesturePosRef.current = null;
-      lastGestureRef.current = 'none';
+      lastGestureRef.current = 'None';
       return;
     }
 
@@ -296,8 +296,8 @@ export const Canvas: React.FC<CanvasProps> = ({
     const prevGesture = lastGestureRef.current;
     
     // 1. Pencil Tool Drawing Gestures
-    if (currentGesture === 'pointing') {
-      if (prevGesture !== 'pointing') {
+    if (currentGesture === 'Index Finger') {
+      if (prevGesture !== 'Index Finger') {
         // Start drawing stroke
         activeStrokeFromGestureRef.current = [worldPos];
       } else {
@@ -313,24 +313,24 @@ export const Canvas: React.FC<CanvasProps> = ({
     }
 
     // 2. Eraser Gestures
-    if (currentGesture === 'eraser') {
+    if (currentGesture === 'Open Palm') {
       eraseAt(worldPos.x, worldPos.y, 25); // wider radius for ease
     }
 
     // 3. Selection and Dragging Gestures
-    if (currentGesture === 'two-fingers') {
+    if (currentGesture === 'Peace Sign') {
       // Choose tool as 'select' if it is not selected
       if (currentTool !== 'select') {
         setTool('select');
       }
       // Click at current screen coords to select elements
-      if (prevGesture !== 'two-fingers') {
+      if (prevGesture !== 'Peace Sign') {
         selectAt(worldPos.x, worldPos.y);
       }
     }
 
     // Pinch selection dragging
-    if (currentGesture === 'pinch') {
+    if (currentGesture === 'Pinch') {
       if (selectedElementId && lastGesturePosRef.current) {
         const dx = worldPos.x - lastGesturePosRef.current.x;
         const dy = worldPos.y - lastGesturePosRef.current.y;
@@ -339,7 +339,7 @@ export const Canvas: React.FC<CanvasProps> = ({
     }
 
     // 4. Fist Panning Gesture
-    if (currentGesture === 'fist') {
+    if (currentGesture === 'Closed Fist') {
       if (lastGesturePosRef.current) {
         // compute pixel offset on screen (panning is smoother in screen coordinates)
         const lastScreenX = lastGesturePosRef.current.x * dimensions.width; // raw values
@@ -357,7 +357,7 @@ export const Canvas: React.FC<CanvasProps> = ({
 
     // Update gesture history references
     // For drag/pan gestures, we store screen coordinate equivalents or raw points
-    if (currentGesture === 'fist') {
+    if (currentGesture === 'Closed Fist') {
       // Store normalized landmarks to compute correct screen displacement in next loop
       lastGesturePosRef.current = { x: indexTip.x, y: indexTip.y };
     } else {

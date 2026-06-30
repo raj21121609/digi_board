@@ -141,12 +141,13 @@ type MPResults = {
  *   none       — no hand / unrecognised
  */
 export type GestureType =
-  | 'none'
-  | 'pointing'
-  | 'eraser'
-  | 'fist'
-  | 'two-fingers'
-  | 'pinch';
+  | 'None'
+  | 'Index Finger'
+  | 'Open Palm'
+  | 'Closed Fist'
+  | 'Peace Sign'
+  | 'Three Fingers'
+  | 'Pinch';
 
 // ─── Gesture classification ───────────────────────────────────────────────────
 
@@ -185,21 +186,24 @@ function classifyGesture(
   const dx = lms[4].x - lms[8].x;
   const dy = lms[4].y - lms[8].y;
   const pinchDist = Math.sqrt(dx * dx + dy * dy);
-  if (pinchDist < 0.07) return 'pinch';
+  if (pinchDist < 0.07) return 'Pinch';
 
   // All fingers up → eraser
-  if (indexUp && middleUp && ringUp && pinkyUp) return 'eraser';
+  if (indexUp && middleUp && ringUp && pinkyUp) return 'Open Palm';
 
   // No fingers up → fist
-  if (!indexUp && !middleUp && !ringUp && !pinkyUp) return 'fist';
+  if (!indexUp && !middleUp && !ringUp && !pinkyUp) return 'Closed Fist';
+
+  // Index + middle + ring up → Three Fingers
+  if (indexUp && middleUp && ringUp && !pinkyUp) return 'Three Fingers';
 
   // Index + middle up only → two-fingers (select)
-  if (indexUp && middleUp && !ringUp && !pinkyUp) return 'two-fingers';
+  if (indexUp && middleUp && !ringUp && !pinkyUp) return 'Peace Sign';
 
   // Index only → pointing (draw)
-  if (indexUp && !middleUp && !ringUp && !pinkyUp) return 'pointing';
+  if (indexUp && !middleUp && !ringUp && !pinkyUp) return 'Index Finger';
 
-  return 'none';
+  return 'None';
 }
 
 
@@ -299,7 +303,7 @@ export function useHandTracking(
   const [error, setError]             = useState<string | null>(null);
   const [hands, setHands]             = useState<DetectedHand[]>([]);
   const [fps, setFps]                 = useState(0);
-  const [currentGesture, setCurrentGesture] = useState<GestureType>('none');
+  const [currentGesture, setCurrentGesture] = useState<GestureType>('None');
   const [landmarks, setLandmarks]     = useState<HandLandmark[] | null>(null);
 
   const handsRef   = useRef<any>(null);
@@ -381,7 +385,7 @@ export function useHandTracking(
       setCurrentGesture(classifyGesture(detected[0].landmarks));
       setLandmarks(detected[0].landmarks);
     } else {
-      setCurrentGesture('none');
+      setCurrentGesture('None');
       setLandmarks(null);
     }
   }, []);
@@ -414,7 +418,7 @@ export function useHandTracking(
     }
     setHands([]);
     setFps(0);
-    setCurrentGesture('none');
+    setCurrentGesture('None');
     setLandmarks(null);
   }, []);
 

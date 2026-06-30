@@ -30,40 +30,47 @@ interface GestureSidebarProps {
 
 const GESTURE_GUIDE = [
   {
-    gesture: 'pointing',
+    gesture: 'Index Finger',
     name: 'Index Pointing',
     action: 'Draw (Pencil)',
     desc: 'Extend index finger; draw on canvas.',
     key: '1',
   },
   {
-    gesture: 'eraser',
+    gesture: 'Open Palm',
     name: 'Open Hand',
     action: 'Erase (Eraser)',
     desc: 'Keep all fingers open; sweeps drawing.',
     key: '2',
   },
   {
-    gesture: 'fist',
+    gesture: 'Closed Fist',
     name: 'Closed Fist',
     action: 'Pan Board',
     desc: 'Make a fist; drag to pan canvas.',
     key: '3',
   },
   {
-    gesture: 'two-fingers',
+    gesture: 'Peace Sign',
     name: 'Index + Middle Up',
     action: 'Select Tool',
     desc: 'Keep index and middle up; choose elements.',
     key: '4',
   },
   {
-    gesture: 'pinch',
+    gesture: 'Pinch',
     name: 'Thumb + Index Pinch',
     action: 'Drag Selected',
     desc: 'Pinch index and thumb to move elements.',
     key: 'Pinch',
   },
+  {
+    gesture: 'Three Fingers',
+    name: 'Index, Middle, Ring Up',
+    action: 'None',
+    desc: 'Extend three fingers.',
+    key: '-',
+  }
 ];
 
 export const GestureSidebar: React.FC<GestureSidebarProps> = ({
@@ -338,7 +345,7 @@ export const GestureSidebar: React.FC<GestureSidebarProps> = ({
         <div className="bg-slate-950 rounded-2xl p-4 border border-slate-800 flex flex-col items-center gap-2 shadow-inner">
           <div className="text-[10px] text-slate-500 font-semibold tracking-wider uppercase">Active Gesture</div>
           <div className="text-xl font-black bg-gradient-to-r from-blue-400 to-emerald-400 bg-clip-text text-transparent uppercase tracking-wide">
-            {currentGesture === 'none' ? 'Searching Hand…' : currentGesture.replace('-', ' ')}
+            {currentGesture === 'None' ? 'Searching Hand…' : currentGesture}
           </div>
           <div className="text-xs text-slate-400 text-center font-medium mt-1 px-3 py-1 bg-slate-900 border border-slate-800 rounded-lg">
             Action:{' '}

@@ -53,9 +53,9 @@ export const StatusBar: React.FC<StatusBarProps> = ({
       <div className="flex items-center gap-4">
         {/* Active Gesture Info */}
         <div className="flex items-center gap-1.5">
-          <CheckCircle className={`h-3.5 w-3.5 ${currentGesture !== 'none' ? 'text-emerald-400 animate-pulse' : 'text-slate-600'}`} />
+          <CheckCircle className={`h-3.5 w-3.5 ${currentGesture !== 'None' ? 'text-emerald-400 animate-pulse' : 'text-slate-600'}`} />
           <span className="font-medium">
-            Active Gesture: <span className={`font-bold uppercase ${currentGesture !== 'none' ? 'text-blue-400' : 'text-slate-500 font-normal'}`}>
+            Active Gesture: <span className={`font-bold uppercase ${currentGesture !== 'None' ? 'text-blue-400' : 'text-slate-500 font-normal'}`}>
               {currentGesture}
             </span>
           </span>

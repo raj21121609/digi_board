@@ -118,7 +118,7 @@ export default function HandOverlay({
   // following the smoothed fingertip. Lowering the finger ends the stroke.
   const air = useAirDrawing(
     airCanvasRef,
-    tracking.currentGesture === 'pointing',
+    tracking.currentGesture === 'Index Finger',
     fingertip,
     { color: penColor, width: 4 }
   );
@@ -221,6 +221,33 @@ export default function HandOverlay({
             </div>
             <div>X: <span style={{ color: '#ffffff' }}>{fingertip.x.toFixed(1)}px</span></div>
             <div>Y: <span style={{ color: '#ffffff' }}>{fingertip.y.toFixed(1)}px</span></div>
+          </div>
+        )}
+
+        {/* Current Gesture overlay card */}
+        {tracking.currentGesture !== 'None' && (
+          <div style={{
+            position: 'absolute',
+            top: 16,
+            right: 16,
+            background: 'rgba(15, 23, 42, 0.85)',
+            backdropFilter: 'blur(8px)',
+            border: '1px solid rgba(59, 130, 246, 0.5)',
+            borderRadius: 8,
+            padding: '8px 12px',
+            zIndex: 20,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+            pointerEvents: 'none'
+          }}>
+            <div style={{ fontWeight: 'bold', fontSize: 10, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              ✋ Current Gesture
+            </div>
+            <div style={{ color: '#ffffff', fontSize: 14, fontWeight: 'bold', textTransform: 'uppercase' }}>
+              {tracking.currentGesture}
+            </div>
           </div>
         )}
 
